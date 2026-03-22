@@ -1,0 +1,102 @@
+Step 1: The IAM Role
+Head to IAM > Roles > Create role.
+
+Select AWS Service and pick Lambda.
+
+Attach the AmazonEC2FullAccess policy.
+
+Name it EC2AutoTaggingRole and save it.
+
+Step 2: The Lambda Function 
+Create a new Lambda function named AutoTagNewInstance.
+
+Set the runtime to Python 3.x.
+
+Under Execution role, choose the role you created in Step 1.
+
+Replace the code with this script:
+
+Python
+import boto3
+from datetime import datetime
+
+def lambda_handler(event, context):
+    ec2 = boto3.client('ec2')
+    
+    # 1. Extract the Instance ID from the EventBridge event
+    # The event structure is provided by EventBridge when an instance changes state
+    try:
+        instance_id = event['detail']['instance-id']
+        print(f"Detected new instance launch: {instance_id}")
+        
+        # 2. Define our tags
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        
+        # 3. Apply the tags
+        ec2.create_tags(
+            Resources=[instance_id],
+            Tags=[
+                {
+                    'Key': 'LaunchDate',
+                    'Value': current_date
+                },
+                {
+                    'Key': 'ManagedBy',
+                    'Value': 'DevOps-Automation-Lambda'
+                }
+            ]
+        )
+        
+        print(f"✅ Successfully tagged {instance_id} with date {current_date}")
+        
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        
+    return {
+        'statusCode': 200,
+        'body': 'Tagging process complete.'
+    }
+Step 3: Triggering with EventBridge (The Glue) 🔗
+Lambda won't know an instance launched unless something tells it. We use Amazon EventBridge (formerly CloudWatch Events) for this.
+
+Open the Amazon EventBridge console.
+
+Go to Rules > Create rule.
+
+Name: TriggerTaggingOnLaunch.
+
+Rule type: Rule with an event pattern.
+
+Event pattern:
+
+Event source: AWS services.
+
+AWS service: EC2.
+
+Event type: EC2 Instance State-change Notification.
+
+Specific state(s): running (or "pending" if you want it tagged even earlier).
+
+Target: Select Lambda function and choose your AutoTagNewInstance function.
+
+Click Create.
+
+Step 4: Final Testing 
+Go to the EC2 Dashboard and launch a new t2.micro instance. Give it no tags during the setup.
+
+Wait about 30–60 seconds after the instance reaches the "Running" state.
+
+Select the instance and click the Tags tab.
+
+Boom! You should see LaunchDate and ManagedBy automatically appear.
+
+Output:
+
+Status: Succeeded
+Test Event Name: MyTestEvent1
+
+Response:
+{
+  "statusCode": 200,
+  "body": "Tagging process complete."
+}

@@ -1,0 +1,72 @@
+Step 1: Set Up the "Permissions" (IAM) 
+You need two roles for this to work:
+
+Lambda Role: Create a role for Lambda with AmazonS3FullAccess and AmazonSSMFullAccess.
+
+EC2 Role: Create an IAM Instance Profile with the AmazonSSMManagedInstanceCore policy and AmazonS3FullAccess. Attach this to your EC2 instance so it has permission to talk to SSM and upload to S3.
+
+Step 2: Prepare the EC2 Instance 
+Ensure the SSM Agent is running (it's pre-installed on Amazon Linux 2/2023).
+
+Ensure the AWS CLI is installed on the instance (to perform the S3 upload).
+
+Step 3: The "Master" Lambda Script 
+Create a Lambda function (Python 3.x) with the role from Step 1. This script does two things: it triggers the backup on the EC2, then cleans up the S3 bucket.
+
+Python
+import boto3
+import time
+from datetime import datetime, timedelta, timezone
+
+def lambda_handler(event, context):
+    ssm = boto3.client('ssm')
+    s3 = boto3.client('s3')
+    
+    # --- CONFIGURATION ---
+    INSTANCE_ID = 'i-xxxxxxyourinstanceid' 
+    BUCKET_NAME = 'your-backup-bucket-name'
+    BACKUP_PATH = '/var/www/html' # Folder to backup
+    
+    # 1. TRIGGER BACKUP VIA SSM
+    # This command zips the folder and uploads it directly from EC2 to S3
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    file_name = f"backup_{timestamp}.zip"
+    
+    command = f"zip -r /tmp/{file_name} {BACKUP_PATH} && aws s3 cp /tmp/{file_name} s3://{BUCKET_NAME}/ && rm /tmp/{file_name}"
+    
+    ssm.send_command(
+        InstanceIds=[INSTANCE_ID],
+        DocumentName="AWS-RunShellScript",
+        Parameters={'commands': [command]}
+    )
+    print(f"🚀 Backup command sent to {INSTANCE_ID} for {file_name}")
+
+    # 2. S3 CLEANUP (Delete older than 30 days)
+    now = datetime.now(timezone.utc)
+    threshold = now - timedelta(days=30)
+    
+    objects = s3.list_objects_v2(Bucket=BUCKET_NAME)
+    if 'Contents' in objects:
+        for obj in objects['Contents']:
+            if obj['LastModified'] < threshold:
+                print(f"🗑️ Deleting old backup: {obj['Key']}")
+                s3.delete_object(Bucket=BUCKET_NAME, Key=obj['Key'])
+
+    return {"status": "Success"}
+Step 4: Automate the Schedule (EventBridge) 
+Go to Amazon EventBridge > Rules > Create rule.
+
+Select Schedule.
+
+Use a Cron expression: 0 0 * * ? * (This runs every day at midnight).
+
+Select your Lambda function as the Target.
+
+Step 5: Testing 
+Run Manually: Hit the "Test" button in Lambda.
+
+Check EC2: Use the SSM "Run Command" history to see if the zip command succeeded.
+
+Check S3: Refresh your bucket to see the new .zip file.
+
+Verification: To test the cleanup without waiting 30 days, temporarily change days=30 to minutes=1 in your code!
