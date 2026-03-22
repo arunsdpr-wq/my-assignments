@@ -12,8 +12,7 @@ Ensure the AWS CLI is installed on the instance (to perform the S3 upload).
 
 Step 3: The "Master" Lambda Script 
 Create a Lambda function (Python 3.x) with the role from Step 1. This script does two things: it triggers the backup on the EC2, then cleans up the S3 bucket.
-
-Python
+----------------------------------------
 import boto3
 import time
 from datetime import datetime, timedelta, timezone
@@ -23,8 +22,8 @@ def lambda_handler(event, context):
     s3 = boto3.client('s3')
     
     # --- CONFIGURATION ---
-    INSTANCE_ID = 'i-xxxxxxyourinstanceid' 
-    BUCKET_NAME = 'your-backup-bucket-name'
+    INSTANCE_ID = 'i-0b900dd2839784e31' 
+    BUCKET_NAME = 'devops-cleanup-test-bucket'
     BACKUP_PATH = '/var/www/html' # Folder to backup
     
     # 1. TRIGGER BACKUP VIA SSM
@@ -53,6 +52,7 @@ def lambda_handler(event, context):
                 s3.delete_object(Bucket=BUCKET_NAME, Key=obj['Key'])
 
     return {"status": "Success"}
+--------------------------------------
 Step 4: Automate the Schedule (EventBridge) 
 Go to Amazon EventBridge > Rules > Create rule.
 
