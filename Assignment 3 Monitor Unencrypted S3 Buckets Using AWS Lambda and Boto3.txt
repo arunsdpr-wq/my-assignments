@@ -1,0 +1,89 @@
+Step 1: Prep Your Security Audit Targets 
+Create Buckets: Head to the S3 Dashboard and create 2 or 3 buckets.
+
+The "Security Gap": To simulate a "vulnerable" bucket for this assignment, you'll need to look at existing legacy buckets if you have them, OR simply understand that our script will catch any bucket where the API call for encryption returns an error.
+
+Note: Even with AWS's 2023 "Default Encryption" update, checking for the specific configuration via Boto3 is the standard way to audit your environment.
+
+Step 2: Set Up the Auditor's Credentials 
+Navigate to IAM > Roles > Create role.
+
+Select AWS Service and choose Lambda.
+
+Search for and attach the policy: AmazonS3ReadOnlyAccess.
+
+Name the role S3SecurityAuditorRole and finish.
+
+Step 3: The "Security Scanner" Script 
+Go to Lambda > Create function.
+
+Name it S3EncryptionAudit. Use Python 3.x.
+
+Attach the IAM role you just made in Step 2.
+
+Replace the boilerplate code with this "Audit Engine":
+--------------------------------------
+Python
+import boto3
+from botocore.exceptions import ClientError
+
+def lambda_handler(event, context):
+    # 1. Initialize S3 client
+    s3 = boto3.client('s3')
+    
+    # 2. List all buckets in the account
+    response = s3.list_buckets()
+    buckets = response['Buckets']
+    
+    unencrypted_buckets = []
+
+    print(f"Starting audit of {len(buckets)} buckets...")
+
+    for bucket in buckets:
+        name = bucket['Name']
+        try:
+            # 3. Try to get the encryption configuration
+            s3.get_bucket_encryption(Bucket=name)
+        except ClientError as e:
+            # If this error code appears, the bucket lacks an explicit configuration
+            if e.response['Error']['Code'] == 'ServerSideEncryptionConfigurationNotFoundError':
+                unencrypted_buckets.append(name)
+            else:
+                print(f"❌ Error checking bucket {name}: {e}")
+
+    # 4. Final Report
+    if unencrypted_buckets:
+        print(f"⚠️ ALERT: The following buckets are unencrypted: {unencrypted_buckets}")
+    else:
+        print("✅ Success: All buckets have server-side encryption enabled.")
+
+    return {
+        'statusCode': 200,
+        'unencrypted_count': len(unencrypted_buckets),
+        'unencrypted_list': unencrypted_buckets
+    }
+----------------------------------------
+Step 4: Run the Audit 
+Deploy your function.
+---------------------------------
+Output:
+Status: Succeeded
+Test Event Name: MyTestEvent
+
+Response:
+{
+  "statusCode": 200,
+  "unencrypted_count": 0,
+  "unencrypted_list": []
+}
+
+The area below shows the last 4 KB of the execution log.
+
+Function Logs:
+START RequestId: 92ed1367-2f85-433e-838c-ad5ea3ecf615 Version: $LATEST
+Starting audit of 3 buckets...
+✅ Success: All buckets have server-side encryption enabled.
+END RequestId: 92ed1367-2f85-433e-838c-ad5ea3ecf615
+REPORT RequestId: 92ed1367-2f85-433e-838c-ad5ea3ecf615	Duration: 3644.82 ms	Billed Duration: 3972 ms	Memory Size: 128 MB	Max Memory Used: 96 MB	Init Duration: 326.76 ms
+
+Request ID: 92ed1367-2f85-433e-838c-ad5ea3ecf615
