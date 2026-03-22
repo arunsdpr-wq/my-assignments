@@ -1,0 +1,79 @@
+Step 1: S3 Bucket Preparation 
+Create a Bucket: Go to the S3 Dashboard and create a bucket (e.g., devops-cleanup-test-bucket).
+
+Upload Files: Upload 3–4 small text files.
+
+The "Old File" Challenge: Since S3 sets the LastModified timestamp the moment a file is uploaded, you can't easily upload a "30-day-old" file.
+
+Pro-Tip: For testing, we will modify the script to look for files older than 1 minute instead of 30 days so you can see it work immediately!
+
+Step 2: Configure the IAM Role 
+Navigate to IAM > Roles > Create role.
+
+Select AWS Service and Lambda.
+
+Attach the AmazonS3FullAccess policy.
+
+Named as S3CleanupLambdaRole and save.
+
+Step 3: Develop the Lambda Function 
+Create a new Lambda function named S3BucketCleaner.
+
+Set the runtime to Python 3.x.
+
+Under Execution role, choose the role you created in Step 2.
+
+Paste the following code into the editor:
+-----------------------------------------------------
+import boto3
+from datetime import datetime, timedelta, timezone
+
+def lambda_handler(event, context):
+    # 1. Configuration - Replace with your bucket name
+    BUCKET_NAME = 'your-bucket-name-here'
+    MINUTES_THRESHOLD = 1 
+    
+    s3 = boto3.client('s3')
+    now = datetime.now(timezone.utc)
+    
+    # 2. List objects in the bucket
+    response = s3.list_objects_v2(Bucket=BUCKET_NAME)
+    
+    if 'Contents' not in response:
+        print(f"Bucket {BUCKET_NAME} is already empty.")
+        return
+    
+    deleted_count = 0
+    
+    # 3. Iterate and check age
+    for obj in response['Contents']:
+        obj_time = obj['LastModified']
+        obj_key = obj['Key']
+        
+        # Calculate file age
+        file_age = now - obj_time
+        
+        if file_age > timedelta(days=MINUTES_THRESHOLD):
+            print(f"Deleting {obj_key} (Age: {file_age.days} days)")
+            s3.delete_object(Bucket=BUCKET_NAME, Key=obj_key)
+            deleted_count += 1
+            
+    print(f"Cleanup complete. Total objects deleted: {deleted_count}")
+    
+    return {
+        'statusCode': 200,
+        'body': f"Deleted {deleted_count} objects."
+    }
+
+Step 4: Testing the Logic 
+Modify for Testing: In the code above, change DAYS_THRESHOLD = 30 to seconds=60 (and update the timedelta call to timedelta(seconds=60)) to test it on your newly uploaded files.
+
+Deploy & Test: Click Deploy, then Test.
+
+Check Logs: Look at the Execution Results tab to see the names of the deleted files.
+
+Verify S3: Refresh your S3 bucket; the files should be gone!
+
+OUTPUT:
+Status: Succeeded
+Test Event Name: MyTestEvent
